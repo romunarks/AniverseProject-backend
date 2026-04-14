@@ -196,15 +196,22 @@ public class ResenyaService {
     /**
      * Obtiene reseñas de un anime específico
      */
-    public Page<ResenyaDTO> getResenyasByAnime(Long animeId, Pageable pageable) {
-        Anime anime = animeRepository.findByIdAndEliminadoFalse(animeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Anime no encontrado con ID: " + animeId));
+    // src/main/java/com/aniverse/backend/service/ResenyaService.java
 
-        return resenyaRepository.findByAnimeAndEliminadoFalse(anime, pageable)
+    // src/main/java/com/aniverse/backend/service/ResenyaService.java
+    @Transactional(readOnly = true) // ✅ Vital para evitar cortes de conexión
+    public Page<ResenyaDTO> getResenyasByAnime(Long animeId, Pageable pageable) {
+        log.debug("Obteniendo reseñas paginadas para el anime ID: {}", animeId);
+
+        // 1. Verificar que el anime exista en local
+        if (!animeRepository.existsById(animeId)) {
+            throw new ResourceNotFoundException("Anime no encontrado con ID: " + animeId);
+        }
+
+        // 2. Usar el nuevo método del repositorio que trae al usuario integrado (JOIN FETCH)
+        return resenyaRepository.findByAnimeIdActiveWithUserPaginated(animeId, pageable)
                 .map(this::convertToDTO);
     }
-
-
     /**
      * Obtiene reseñas de un usuario específico - VERSIÓN SIN LAZY LOADING
      */

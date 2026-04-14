@@ -161,82 +161,38 @@ public class FavoritoService {
     /**
      * Alterna el estado de favorito (agregar/quitar)
      */
-    @Transactional
-    public Map<String, Object> toggleFavorito(Long usuarioId, Long jikanId, Map<String, Object> animeData) {
-        log.info("Toggle favorito - Usuario: {}, JikanId: {}", usuarioId, jikanId);
+    // src/main/java/com/aniverse/backend/service/FavoritoService.java
 
+    @Transactional
+    public Map<String, Object> toggleFavorito(Long usuarioId, Long jikanId) {
+        Usuario usuario = usuarioRepository.findByIdAndEliminadoFalse(usuarioId)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+
+        // Obtenemos el anime (de BD o API automáticamente)
+        Anime anime = externalAnimeService.findOrSaveExternalAnime(jikanId);
+
+        // Buscamos si ya existe el vínculo de favorito
+        Optional<Favorito> favoritoExistente = favoritoRepository.findByUsuario_IdAndAnime_JikanId(usuarioId, jikanId);
         Map<String, Object> result = new HashMap<>();
 
-        try {
-            // Verificar si ya es favorito
-            boolean esFavorito = existeFavoritoPorJikanId(usuarioId, jikanId);
+        if (favoritoExistente.isPresent()) {
+            favoritoRepository.delete(favoritoExistente.get());
+            result.put("action", "removed");
+            result.put("isFavorite", false);
+        } else {
+            Favorito nuevoFavorito = new Favorito(usuario, anime);
+            favoritoRepository.save(nuevoFavorito);
 
-            if (esFavorito) {
-                // Eliminar favorito
-                boolean eliminado = eliminarFavoritoPorJikanId(usuarioId, jikanId);
-                result.put("success", eliminado);
-                result.put("action", "removed");
-                result.put("isFavorite", false);
-                result.put("message", eliminado ? "Anime eliminado de favoritos" : "Error eliminando favorito");
-            } else {
-                // Agregar favorito - necesitamos crear el anime si no existe
-                Usuario usuario = usuarioRepository.findByIdAndEliminadoFalse(usuarioId)
-                        .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+            // Registro de actividad para el muro social
+            actividadService.registrarActividad(usuarioId, "FAVORITO_ADD", anime.getId(), "ANIME", null);
 
-                // Extraer datos del anime del payload
-                String titulo = (String) animeData.get("titulo");
-                String imagenUrl = (String) animeData.get("imagenUrl");
-                String tipo = (String) animeData.get("tipo");
-                Integer episodios = animeData.get("episodios") != null ?
-                        Integer.valueOf(animeData.get("episodios").toString()) : null;
-                String estado = (String) animeData.get("estado");
-                Double puntuacion = animeData.get("puntuacion") != null ?
-                        Double.valueOf(animeData.get("puntuacion").toString()) : null;
-                String generos = (String) animeData.get("generos");
-                String sinopsis = (String) animeData.get("sinopsis");
-
-                // Crear o encontrar el anime
-                Anime anime = externalAnimeService.findOrCreateAnimeByJikanId(
-                        jikanId, titulo, imagenUrl, tipo, episodios, estado, puntuacion, generos, sinopsis
-                );
-
-                // Crear favorito
-                Favorito favorito = new Favorito(usuario, anime);
-                Favorito savedFavorito = favoritoRepository.save(favorito);
-
-                // Registrar actividad
-                try {
-                    actividadService.registrarActividad(
-                            usuarioId,
-                            ActividadTipo.FAVORITO_ADD.name(),
-                            anime.getId(),
-                            "ANIME",
-                            null
-                    );
-                } catch (Exception e) {
-                    log.warn("Error registrando actividad: {}", e.getMessage());
-                }
-
-                result.put("success", true);
-                result.put("action", "added");
-                result.put("isFavorite", true);
-                result.put("message", "Anime agregado a favoritos");
-                result.put("data", Map.of(
-                        "favoritoId", savedFavorito.getId(),
-                        "animeId", anime.getId(),
-                        "animeTitulo", anime.getTitulo()
-                ));
-            }
-
-            result.put("jikanId", jikanId);
-            return result;
-
-        } catch (Exception e) {
-            log.error("Error en toggle favorito: {}", e.getMessage());
-            result.put("success", false);
-            result.put("message", "Error interno: " + e.getMessage());
-            return result;
+            result.put("action", "added");
+            result.put("isFavorite", true);
         }
+
+        result.put("success", true);
+        result.put("jikanId", jikanId);
+        return result;
     }
 
     // ===============================================

@@ -155,10 +155,7 @@ public class FavoritoController {
     @PostMapping("/toggle")
     @PreAuthorize("hasAuthority('ROLE_USER')")
     @SecurityRequirement(name = "bearerAuth")
-    @Operation(
-            summary = "Alternar estado de favorito",
-            description = "Agrega o quita un anime de favoritos dependiendo del estado actual"
-    )
+    @Operation(summary = "Alternar estado de favorito")
     public ResponseEntity<AniverseResponse<Map<String, Object>>> toggleFavorito(
             @RequestBody Map<String, Object> payload,
             HttpServletRequest request) {
@@ -170,14 +167,15 @@ public class FavoritoController {
                         .body(AniverseResponse.error("Usuario no autenticado"));
             }
 
-            // Validar que jikanId esté presente
             if (!payload.containsKey("jikanId")) {
                 return ResponseEntity.badRequest()
                         .body(AniverseResponse.error("jikanId es requerido"));
             }
 
             Long jikanId = Long.valueOf(payload.get("jikanId").toString());
-            Map<String, Object> result = favoritoService.toggleFavorito(userId, jikanId, payload);
+
+            // AQUI ESTÁ EL CAMBIO: Ya no le pasamos el 'payload' completo, solo el jikanId
+            Map<String, Object> result = favoritoService.toggleFavorito(userId, jikanId);
 
             return ResponseEntity.ok(AniverseResponse.success("Operación completada", result));
 
@@ -187,7 +185,6 @@ public class FavoritoController {
                     .body(AniverseResponse.error("Error interno del servidor"));
         }
     }
-
     // ===============================================
     // ENDPOINTS GET PARA VERIFICAR FAVORITOS
     // ===============================================

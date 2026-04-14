@@ -178,36 +178,35 @@ public class VotacionService {
     /**
      * Crea una nueva votación por jikanId
      */
+    // src/main/java/com/aniverse/backend/service/VotacionService.java
+
+    /**
+     * ✅ UPSERT MÁGICO: Crea o Actualiza una votación por jikanId
+     */
     public boolean createVotacion(Long userId, Long jikanId, Integer puntuacion) {
         try {
-            // Verificar si ya existe votación
-            Optional<Votacion> existente = findByUserIdAndJikanId(userId, jikanId);
-            if (existente.isPresent()) {
-                System.err.println("Ya existe una votación para este usuario y anime");
-                return false;
-            }
-
-            // Encontrar usuario
+            // 1. Encontrar usuario
             Usuario usuario = usuarioRepository.findById(userId)
                     .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
 
-            // Encontrar anime por jikanId
+            // 2. Encontrar anime por jikanId
             Optional<Anime> animeOpt = animeRepository.findByJikanId(jikanId);
             if (animeOpt.isEmpty()) {
                 System.err.println("Anime no encontrado con jikanId: " + jikanId);
                 return false;
             }
-
             Anime anime = animeOpt.get();
 
-            // Convertir puntuación de escala 1-10 a 1-5
-            Double puntuacionInterna = puntuacion / 2.0;
+            // 3. ✅ ESCALA CORREGIDA: Eliminamos la división entre 2.
+            // El frontend manda 1-5 y guardamos 1-5 directamente.
+            Double puntuacionFinal = Double.valueOf(puntuacion);
 
-            // Crear votación
-            Votacion votacion = new Votacion();
+            // 4. ✅ PATRÓN UPSERT: Buscar si existe. Si existe la usamos, si no, creamos una nueva.
+            Votacion votacion = findByUserIdAndJikanId(userId, jikanId).orElse(new Votacion());
+
             votacion.setUsuario(usuario);
             votacion.setAnime(anime);
-            votacion.setPuntuacion(puntuacionInterna);
+            votacion.setPuntuacion(puntuacionFinal);
 
             Votacion saved = votacionRepository.save(votacion);
 
@@ -217,14 +216,13 @@ public class VotacionService {
                     ActividadTipo.VALORACION.name(),
                     anime.getId(),
                     "ANIME",
-                    Map.of("puntuacion", puntuacionInterna)
+                    Map.of("puntuacion", puntuacionFinal)
             );
 
             return saved.getId() != null;
 
         } catch (Exception e) {
-            System.err.println("Error creando votación: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("Error creando/actualizando votación: " + e.getMessage());
             return false;
         }
     }

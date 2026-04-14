@@ -48,10 +48,22 @@ public interface ResenyaRepository extends JpaRepository<Resenya, Long> {
     // ✅ MÉTODOS PARA LISTAS (SIN PAGINACIÓN)
     @Query("SELECT r FROM Resenya r WHERE r.anime = :anime AND r.eliminado = false")
     List<Resenya> findByAnimeAndEliminadoFalse(@Param("anime") Anime anime);
+// src/main/java/com/aniverse/backend/repository/ResenyaRepository.java
 
+    // ✅ AGREGAR ESTE MÉTODO PARA EL DETALLE DEL ANIME
+    @Query("SELECT r FROM Resenya r " +
+            "LEFT JOIN FETCH r.usuario " +
+            "WHERE r.anime.id = :animeId AND r.eliminado = false " +
+            "ORDER BY r.fechaCreacion DESC")
+    List<Resenya> findByAnimeIdActiveWithUser(@Param("animeId") Long animeId);
     @Query("SELECT r FROM Resenya r WHERE r.usuario = :usuario AND r.eliminado = false")
     List<Resenya> findByUsuarioAndEliminadoFalse(@Param("usuario") Usuario usuario);
+// src/main/java/com/aniverse/backend/repository/ResenyaRepository.java
 
+    // ✅ MÉTODO CRÍTICO PARA SOLUCIONAR EL ERROR DE LAZY LOADING EN LAS LISTAS
+    @Query(value = "SELECT r FROM Resenya r JOIN FETCH r.usuario WHERE r.anime.id = :animeId AND r.eliminado = false",
+            countQuery = "SELECT COUNT(r) FROM Resenya r WHERE r.anime.id = :animeId AND r.eliminado = false")
+    Page<Resenya> findByAnimeIdActiveWithUserPaginated(@Param("animeId") Long animeId, Pageable pageable);
     // ===== MÉTODOS DE VERIFICACIÓN =====
 
     @Query("SELECT CASE WHEN COUNT(r) > 0 THEN true ELSE false END FROM Resenya r WHERE r.usuario = :usuario AND r.anime = :anime AND r.eliminado = false")

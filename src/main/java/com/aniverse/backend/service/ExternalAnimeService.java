@@ -32,7 +32,9 @@ public class ExternalAnimeService {
     private String JIKAN_API_URL;
 
     // Rate limiting: Jikan API tiene un límite de 3 peticiones por segundo y 60 por minuto
-    private static final long RATE_LIMIT_DELAY = 334; // ms entre peticiones (aprox. 3 por segundo)
+    // ANTES: private static final long RATE_LIMIT_DELAY = 334;
+    // AHORA: Ponle 1050ms (1 segundo y un poquito de margen de seguridad)
+    private static final long RATE_LIMIT_DELAY = 1050;
     private long lastRequestTime = 0;
     // Añadir constantes para tipos de listado
     public static final String CATEGORY_TRENDING = "trending";
@@ -229,83 +231,47 @@ public class ExternalAnimeService {
      * @return El anime encontrado o guardado
      * @throws ResourceNotFoundException si el anime no se puede encontrar en Jikan
      */
+    // src/main/java/com/aniverse/backend/service/ExternalAnimeService.java
+
     @Transactional
     public Anime findOrSaveExternalAnime(Long jikanId) {
-        if (jikanId == null) {
-            throw new IllegalArgumentException("El jikanId no puede ser nulo");
-        }
+        if (jikanId == null) throw new IllegalArgumentException("El jikanId no puede ser nulo");
 
-        // Buscar si ya existe en DB (no eliminado)
-        Optional<Anime> existingAnime = animeRepository.findByJikanIdAndEliminadoFalse(jikanId);
+        // 1. Intentar recuperar de la base de datos (incluyendo eliminados)
+        Optional<Anime> existingAnime = animeRepository.findByJikanId(jikanId);
+
         if (existingAnime.isPresent()) {
-            log.debug("Anime con jikanId {} encontrado localmente", jikanId);
-            return existingAnime.get();
-        }
-
-        // Buscar si existe pero está eliminado
-        existingAnime = animeRepository.findByJikanId(jikanId);
-        if (existingAnime.isPresent() && existingAnime.get().isEliminado()) {
-            log.info("Restaurando anime con jikanId {} que estaba eliminado", jikanId);
             Anime anime = existingAnime.get();
-            anime.setEliminado(false);
-            anime.setFechaEliminacion(null);
-            return animeRepository.save(anime);
-        }
-
-        // Si no existe, obtenerlo de API y guardarlo
-        try {
-            applyRateLimit();
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("Accept", MediaType.APPLICATION_JSON_VALUE);
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    JIKAN_API_URL + "/anime/" + jikanId,
-                    HttpMethod.GET,
-                    entity,
-                    new ParameterizedTypeReference<Map<String, Object>>() {}
-            );
-
-            if (response.getBody() == null || response.getBody().get("data") == null) {
-                throw new ResourceNotFoundException("Anime no encontrado en Jikan con ID: " + jikanId);
-            }
-
-            Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
-            Anime anime = convertToAnime(data);
-
-            if (anime != null) {
-                log.info("Guardando nuevo anime con jikanId {}: {}", jikanId, anime.getTitulo());
-                // Verificación adicional de seguridad para la descripción antes de guardar
-                if (anime.getDescripcion() != null && anime.getDescripcion().length() > 240) {
-                    log.warn("Truncando descripción en findOrSaveExternalAnime para animeId: {}", anime.getJikanId());
-                    anime.setDescripcion(anime.getDescripcion().substring(0, 237) + "...");
-                }
-
-// Verificación para otros campos de texto
-                if (anime.getGenero() != null && anime.getGenero().length() > 200) {
-                    anime.setGenero(anime.getGenero().substring(0, 197) + "...");
-                }
-
-                if (anime.getTitulo() != null && anime.getTitulo().length() > 100) {
-                    anime.setTitulo(anime.getTitulo().substring(0, 97) + "...");
-                }
-
+            // Si estaba marcado como eliminado, lo restauramos (Lazy Restoration)
+            if (anime.isEliminado()) {
+                log.info("Restaurando anime JikanId {} desde estado eliminado", jikanId);
+                anime.setEliminado(false);
+                anime.setFechaEliminacion(null);
                 return animeRepository.save(anime);
             }
+            return anime;
+        }
 
-            throw new ResourceNotFoundException("Error al procesar datos de anime con ID: " + jikanId);
-        } catch (HttpClientErrorException.NotFound e) {
-            log.error("Anime no encontrado en Jikan API: {}", jikanId);
-            throw new ResourceNotFoundException("Anime no encontrado en Jikan con ID: " + jikanId);
-        } catch (ResourceNotFoundException e) {
-            throw e;
+        // 2. Si no existe en absoluto, traerlo de Jikan
+        try {
+            applyRateLimit(); // Mantiene el delay de 1050ms que configuramos
+
+            String url = JIKAN_API_URL + "/anime/" + jikanId;
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    url, HttpMethod.GET, null, new ParameterizedTypeReference<Map<String, Object>>() {}
+            );
+
+            Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+            Anime nuevoAnime = convertToAnime(data); // Tu mapeador con truncado de texto
+
+            log.info("Lazy Saving: Guardando nuevo anime '{}' (JikanId: {})", nuevoAnime.getTitulo(), jikanId);
+            return animeRepository.save(nuevoAnime);
+
         } catch (Exception e) {
-            log.error("Error al obtener anime de Jikan API: {}", e.getMessage(), e);
-            throw new RuntimeException("Error al comunicarse con Jikan API: " + e.getMessage(), e);
+            log.error("Error al sincronizar con Jikan API: {}", e.getMessage());
+            throw new ResourceNotFoundException("No se pudo sincronizar el anime con ID: " + jikanId);
         }
     }
-
     /**
      * Convierte datos de la API Jikan a una entidad Anime
      *
@@ -354,7 +320,7 @@ public class ExternalAnimeService {
             }
 
             // Truncar descripción
-            final int MAX_DESCRIPCION_LENGTH = 240;
+            final int MAX_DESCRIPCION_LENGTH = 1000;
             if (descripcion.length() > MAX_DESCRIPCION_LENGTH) {
                 log.debug("Truncando descripción para jikanId {}: de {} a {} caracteres",
                         jikanId, descripcion.length(), MAX_DESCRIPCION_LENGTH);

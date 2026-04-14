@@ -73,8 +73,7 @@ public interface AnimeRepository extends JpaRepository<Anime, Long> {
             "GROUP BY a.id ORDER BY AVG(v.puntuacion) DESC")
     List<Anime> findTopRatedAnimes(Pageable pageable); // Esta es la que causaba LazyInit si no se manejaba en el servicio
 
-    @Query("SELECT a.genero, COUNT(a.id) FROM Anime a WHERE a.eliminado = false " + // Corregido COUNT(a) a COUNT(a.id) por claridad
-            "GROUP BY a.genero ORDER BY COUNT(a.id) DESC")
+    @Query("SELECT a.genero, COUNT(a.id) FROM Anime a WHERE a.eliminado = false GROUP BY a.genero ORDER BY COUNT(a.id) DESC")
     List<Object[]> getGenreDistribution();
 
     @Query("SELECT a.anyo, COUNT(a.id) FROM Anime a WHERE a.eliminado = false " + // Corregido COUNT(a) a COUNT(a.id)
@@ -114,9 +113,11 @@ public interface AnimeRepository extends JpaRepository<Anime, Long> {
             "FROM Anime a WHERE a.eliminado = false ORDER BY a.createdAt DESC")
     List<AnimeDTO> findMostRecentAnimesAsDTO(Pageable pageable);
 
-    @Query("SELECT new com.aniverse.backend.dto.AnimeDTO(" +
-            "a.id, a.jikanId, a.titulo, a.descripcion, a.genero, a.imagenUrl) " +
-            "FROM Anime a WHERE a.eliminado = false")
+    @Query("SELECT new com.aniverse.backend.dto.AnimeDTO(a.id, a.jikanId, a.titulo, a.descripcion, a.genero, a.imagenUrl) " +
+            "FROM Anime a LEFT JOIN a.votaciones v " +
+            "WHERE a.eliminado = false " +
+            "GROUP BY a.id " +
+            "ORDER BY AVG(v.puntuacion) DESC NULLS LAST")
     List<AnimeDTO> findTopRatedAnimesAsDTO(Pageable pageable);
 
     @Query("SELECT new com.aniverse.backend.dto.AnimeDTO(" +
